@@ -9,6 +9,7 @@ Battle your friends, pledge your favorite ERC20 meme coins, and track your stats
 ## 🧭 Overview
 
 - ⚔️ **Challenge Friends** in commit-reveal Rock, Paper, Scissors
+- 🐔 **7-Day Timeout Rule** — Players have **7 days** to reply to a challenge or to reveal their move. If not, they’ll be called *chicken* by the opponent and forfeit the match. 
 - 💰 **Stake ERC20 Tokens** as a wager (meme coins welcome!)
 - 🧾 **Pay Small Fees** on top of gas to support the game
 - 🧠 **Track Your Stats** (wins, losses, draws, and chicken outs)
