@@ -239,4 +239,100 @@ describe("Janken", () => {
     expect(await erc20.read.balanceOf([walletClientChallenger.account.address])).equal(challengerInitBalance - pledgeAmount);
     expect(await erc20.read.balanceOf([walletClientChallenged.account.address])).equal(challengedInitBalance + pledgeAmount);
   });
+
+  it("should allow chicken out if commit deadline missed", async () => {
+
+    const { janken } = await loadFixture(deployJanken);
+    const { erc20 } = await loadFixture(deployERC20);
+    const [walletClientChallenger, walletClientChallenged] = await hre.viem.getWalletClients();
+    const m1 = erc20.write.mint([walletClientChallenger.account.address, 100000n]);
+    const m2 = erc20.write.mint([walletClientChallenged.account.address, 100000n]);
+    await Promise.all([m1, m2]);
+    const challengerInitBalance = await erc20.read.balanceOf([walletClientChallenger.account.address]);
+    const challengedInitBalance = await erc20.read.balanceOf([walletClientChallenged.account.address]);
+
+    const secret = "timeout";
+    const commitment = buildCommitment(1, secret); // Paper
+    const pledgeAmount = 100n;
+
+    await erc20.write.approve([janken.address, pledgeAmount], {account: walletClientChallenger.account});
+    await janken.write.challenge([walletClientChallenged.account.address, commitment, erc20.address, pledgeAmount], {
+      account: walletClientChallenger.account,
+      value: fee
+    });
+
+    // Manually advance time (Hardhat only)
+    await hre.network.provider.send("evm_increaseTime", [8 * 24 * 60 * 60 + 1]); // +8 days
+    await hre.network.provider.send("evm_mine");
+
+    // Challenger should be able to call challenger chicken
+    await janken.write.callChallengedChicken([walletClientChallenged.account.address, false], {
+      account: walletClientChallenger.account,
+      value: fee
+    });
+
+    // Check stats
+    const challengedStats: any = await janken.read.playerStats([walletClientChallenged.account.address]);
+    expect(challengedStats[3]).equal(1n);
+
+    // Check balances
+    expect(await erc20.read.balanceOf([walletClientChallenger.account.address])).equal(challengerInitBalance);
+    expect(await erc20.read.balanceOf([walletClientChallenged.account.address])).equal(challengedInitBalance);
+  });
+
+  it("verify give up works: unstuck the game after the challenger withdraw its tokens before the game settles", async () => {
+
+    const { janken } = await loadFixture(deployJanken);
+    const { erc20 } = await loadFixture(deployERC20);
+    const [walletClientChallenger, walletClientChallenged] = await hre.viem.getWalletClients();
+    const m1 = erc20.write.mint([walletClientChallenger.account.address, 100000n]);
+    const m2 = erc20.write.mint([walletClientChallenged.account.address, 100000n]);
+    await Promise.all([m1, m2]);
+    const challengerInitBalance = await erc20.read.balanceOf([walletClientChallenger.account.address]);
+    const challengedInitBalance = await erc20.read.balanceOf([walletClientChallenged.account.address]);
+
+    const move: Move = 0; // Rock
+    const secret = "verySecret123";
+    const commitment = buildCommitment(move, secret);
+    const pledgeAmount = 100n;
+
+    // Challenger starts the game by committing to a move
+    await erc20.write.approve([janken.address, pledgeAmount], {account: walletClientChallenger.account});
+    await janken.write.challenge([walletClientChallenged.account.address, commitment, erc20.address, pledgeAmount], {
+      account: walletClientChallenger.account,
+      value: fee
+    });
+  
+    // Challenged plays Papper (1)
+    await erc20.write.approve([janken.address, pledgeAmount], {account: walletClientChallenged.account});
+    await janken.write.play([walletClientChallenger.account.address, 1, erc20.address, pledgeAmount, false], {
+      account: walletClientChallenged.account,
+      value: fee
+    });
+
+    // Withdraw the pledge amount before the game settles
+    await erc20.write.approve([janken.address, 0n], {account: walletClientChallenger.account});
+
+    // Reveal: Papper vs Rock → Challenged player wins
+    expect(janken.write.reveal([walletClientChallenged.account.address, secret, move, false], {
+      account: walletClientChallenger.account,
+      value: fee
+    })).to.be.revertedWith("Game is stuck, please call giveUp");
+
+    // Retry with giveup
+    await janken.write.reveal([walletClientChallenged.account.address, secret, move, true], {
+      account: walletClientChallenger.account,
+      value: fee
+    });
+
+    // Check stats
+    const challengerStats = await janken.read.playerStats([walletClientChallenger.account.address]);
+    const challengedStats = await janken.read.playerStats([walletClientChallenged.account.address]);
+    expect(challengerStats[1]).equal(1n);
+    expect(challengedStats[0]).equal(1n);
+
+    // Check balances
+    expect(await erc20.read.balanceOf([walletClientChallenger.account.address])).equal(challengerInitBalance);
+    expect(await erc20.read.balanceOf([walletClientChallenged.account.address])).equal(challengedInitBalance);
+  });
 });
