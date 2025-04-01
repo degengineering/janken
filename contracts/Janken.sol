@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "./Fees.sol";
 
 /**
@@ -106,12 +107,12 @@ contract Janken is Fees {
         newGame.commitDeadline = block.timestamp + COMMIT_DURATION;
         gameCounter++;
 
-        // Transfer the pledge amount to the contract
+        // In case the challenged player pledge some token, verify the smart contract has the approval to transfer the pledged amount
         if (pledge > 0) {
             require(erc20 != address(0), "Invalid ERC20 token address");
             newGame.challengerErc20Token = erc20;
             newGame.challengerErc20Pledge = pledge;
-            require(IERC20(erc20).transferFrom(msg.sender, address(this), pledge), "Transfer failed");
+            require(IERC20(erc20).allowance(msg.sender, address(this)) == pledge, "Not enough allowance to the smart contract");
         }
         emit GameStarted(newGame.id, msg.sender, challengedPlayer, newGame.commitDeadline, erc20, pledge);
     }
@@ -126,7 +127,7 @@ contract Janken is Fees {
      * @param challengedPlayer The address of the player being challenged.
      * @param keepIt If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function callChallengedChicken(address challengedPlayer, bool keepIt) external payable collectFee returns (bool) {
+    function callChallengedChicken(address challengedPlayer, bool keepIt) external payable collectFee nonReentrant returns (bool) {
         Game storage game = games[msg.sender][challengedPlayer];
         require(game.commitment != bytes32(0), "Game does not exist");
         require(game.gameState == GameState.CommitPhase, "Invalid game state");
@@ -165,7 +166,7 @@ contract Janken is Fees {
      * @param pledge The amount of the ERC20 token to be used as a pledge.
      * @param keepIt If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function play(address challenger, Move move, address erc20, uint256 pledge, bool keepIt) external payable collectFee {
+    function play(address challenger, Move move, address erc20, uint256 pledge, bool keepIt) external payable nonReentrant collectFee {
         Game storage game = games[challenger][msg.sender];
         require(game.commitment != bytes32(0), "Game does not exist");
         require(game.gameState == GameState.CommitPhase, "Invalid game state");
@@ -180,12 +181,12 @@ contract Janken is Fees {
         game.gameState = GameState.RevealPhase;
         game.revealDeadline = block.timestamp + REVEAL_DURATION;
 
-        // Transfer the pledge amount to the contract
+        // In case the challenged player pledge some token, verify the smart contract has the approval to transfer the pledged amount
         if (pledge > 0) {
             require(erc20 != address(0), "Invalid ERC20 token address");
             game.challengedErc20Token = erc20;
             game.challengedErc20Pledge = pledge;
-            require(IERC20(erc20).transferFrom(msg.sender, address(this), pledge), "Transfer failed");
+            require(IERC20(erc20).allowance(msg.sender, address(this)) == pledge, "Not enough allowance to the smart contract");
         }
         emit GameOn(game.id, challenger, msg.sender, game.revealDeadline, erc20, pledge);
     }
@@ -200,7 +201,7 @@ contract Janken is Fees {
      * @param challenger The address of the player who challenged the sender.
      * @param keepIt If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function callChallengerChicken(address challenger, bool keepIt) external payable collectFee returns (bool) {
+    function callChallengerChicken(address challenger, bool keepIt) external payable collectFee nonReentrant returns (bool) {
         Game storage game = games[challenger][msg.sender];
         require(game.commitment != bytes32(0), "Game does not exist");
         require(game.gameState == GameState.RevealPhase, "Invalid game state");
@@ -235,7 +236,7 @@ contract Janken is Fees {
      * @param secret The secret used to create the commitment hash.
      * @param move The move of the player used to create the commitment hash (Rock, Paper, or Scissors).
      */
-    function reveal(address challengedPlayer, string calldata secret, Move move, bool keepIt) external payable collectFee {
+    function reveal(address challengedPlayer, string calldata secret, Move move, bool keepIt) external payable collectFee nonReentrant{
         Game storage game = games[msg.sender][challengedPlayer];
         require(game.commitment != bytes32(0), "Game does not exist");
         require(game.gameState == GameState.RevealPhase, "Invalid game state");
@@ -266,7 +267,6 @@ contract Janken is Fees {
             result = Result.ChallengerWin;
             _settle(game, msg.sender, challengedPlayer, Result.ChallengerWin, keepIt);
         }
-        emit GameFinished(game.id, msg.sender, challengedPlayer, result);
     }
 
     /**
@@ -329,25 +329,25 @@ contract Janken is Fees {
             // Challenger wins and get all the tokens
             playerStats[challenger].wins++;
             playerStats[challengedPlayer].losses++;
-            _distribute(challengerToken, challenger, challengerAmount, challengedToken, challenger, challengedAmount, keepIt);
+            _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challenger, challengedAmount, keepIt);
         } else if (result == Result.ChallengedWin) {
             // Challenged player wins and get all the tokens
             playerStats[challengedPlayer].wins++;
             playerStats[challenger].losses++;
-            _distribute(challengerToken, challengedPlayer, challengerAmount, challengedToken, challengedPlayer, challengedAmount, keepIt);
+            _distribute(challenger, challengerToken, challengedPlayer, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, keepIt);
         } else if (result == Result.Draw) {
             // Draw, both players get their tokens back
             playerStats[challenger].draws++;
             playerStats[challengedPlayer].draws++;
-            _distribute(challengerToken, challenger, challengerAmount, challengedToken, challengedPlayer, challengedAmount, keepIt);
+            _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, keepIt);
         } else if (result == Result.ChallengerChickenOut) {
             // Challenger chicken out and challenged player gets all the tokens
             playerStats[challenger].chickenOuts++;
-            _distribute(challengerToken, challengedPlayer, challengerAmount, challengedToken, challengedPlayer, challengedAmount, keepIt);
+            _distribute(challenger, challengerToken, challengedPlayer, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, keepIt);
         } else if (result == Result.ChallengedChickenOut) {
             // Challenged player chicken out. Challenger gets all the tokens
             playerStats[challengedPlayer].chickenOuts++;
-            _distribute(challengerToken, challenger, challengerAmount, challengedToken, challenger, challengedAmount, keepIt);
+            _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challenger, challengedAmount, keepIt);
         } else {
             revert("Invalid result");
         }
@@ -362,12 +362,12 @@ contract Janken is Fees {
      * @param challengedPledge Amount of the pledged ERC20 token to be transferred to the challenged player.
      * @param keepIt If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function _distribute(address challengerErc20Token,address challengerPledgeTo, uint256 challengerPledge, address challengedErc20Token, address challengedPledgeTo, uint256 challengedPledge, bool keepIt) internal {
+    function _distribute(address challenger, address challengerErc20Token,address challengerPledgeTo, uint256 challengerPledge, address challengedPlayer, address challengedErc20Token, address challengedPledgeTo, uint256 challengedPledge, bool keepIt) internal {
         if (challengerPledge > 0 && !keepIt) {
-            require(IERC20(challengerErc20Token).transfer(challengerPledgeTo, challengerPledge), "Transfer of the challenger's pledge failed");
+            require(IERC20(challengerErc20Token).transferFrom(challenger, challengerPledgeTo, challengerPledge), "Transfer of the challenger's pledge failed");
         }
         if (challengedPledge > 0 && !keepIt) {
-            require(IERC20(challengedErc20Token).transfer(challengedPledgeTo, challengedPledge), "Transfer of the challenged's pledge failed");
+            require(IERC20(challengedErc20Token).transferFrom(challengedPlayer, challengedPledgeTo, challengedPledge), "Transfer of the challenged's pledge failed");
         }
     }
 }

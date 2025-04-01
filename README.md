@@ -41,3 +41,20 @@ git clone https://github.com/your-org/janken.git
 cd janken
 npm install
 npx hardhat compile
+
+
+
+
+Building Dexes, the Web3 backbone for business processes.
+
+Dexes is an answer to the mandatory use of einvoicing in EU with the PEPPOL network. That network has 3 critic issues:
+- Lack of confidentiality: every intermediary can py on invoices
+- Lack of authenticity: Users do not sign their invoices and can't verify the invoice integrity as there is n frameowrk for digital signatures
+- Lack of sovereignty: PEPPOL has 17 local authorities and much more "access providers". THese are all peope who can ban your company from the only einvoicing system you are allowed to use. If that happen, your company is dead.
+
+Dexes is built to provide a better alternative to peppol:
+- End-to-end encryption and digital signatures verifications thanks to Web3 PGP, a global public key registry built on Kraken Ink
+- Public key revocation using Web3 PGP
+- einvoicing on chain and off-chain thanks to Web3 PGP and Web3 UBL: You can store encrypted and signed invoice on-chain for a fistful of pennies and only your counterparty can decrypt it. Your encrypted invoice and everything needed to verify it (eg the detached signature) are forever available on chain. As long as you have your OpenPGP keys and access to ethereum, you can retrieve your data
+
+And noone can kick you out.

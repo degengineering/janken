@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
  * @title Fees
@@ -9,10 +10,10 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * @notice This contract provides basic fee management functionalities restricted to the owner of the contract and a collectFee 
  * modifier which can be used by payable functions to require and collect a flat service fee without changing the function code.
  */
-contract Fees is Ownable {
+contract Fees is Ownable, ReentrancyGuard {
 
     // Fee rquested in weis
-    uint256 _fee;
+    uint256 private _fee;
 
     /**
      * @notice Emitted when the fee is updated.
@@ -79,7 +80,7 @@ contract Fees is Ownable {
      * @dev This function should be restricted to authorized users.
      * @return The amount withdrawn, expressed in wei.
      */
-    function withdrawFees() external onlyOwner returns (uint256) {
+    function withdrawFees() external onlyOwner nonReentrant returns (uint256) {
         uint256 balance = address(this).balance;
         require(balance > 0, "No fees to withdraw");
         payable(owner()).transfer(balance);
