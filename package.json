@@ -4,9 +4,7 @@
   "description": "A fully onchain Janken (Rock, Paper, Scissors) game where you challenge friends and risk your finest meme coins.",
   "main": "index.js",
   "dependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/contracts": "^5.2.0",
-    "@openzeppelin/contracts-upgradeable": "^5.2.0",
     "append": "^0.1.1",
     "async": "^0.1.22",
     "consolidate": "^0.3.1",
@@ -17,8 +15,11 @@
     "rimraf": "^1.0.9"
   },
   "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@nomicfoundation/hardhat-toolbox-viem": "^3.0.0",
     "@nomicfoundation/hardhat-viem": "^2.0.6",
+    "@openzeppelin/contracts-upgradeable": "^5.2.0",
+    "@openzeppelin/hardhat-upgrades": "^3.9.0",
     "hardhat": "^2.22.19",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2",

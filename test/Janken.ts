@@ -1,4 +1,4 @@
-import hre from "hardhat";
+import hre, { viem } from "hardhat";
 import { assert, expect } from "chai";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox-viem/network-helpers";
 import { AbiParameter, encodePacked, keccak256, parseEther } from "viem";
@@ -16,9 +16,16 @@ type Move = 0 | 1 | 2; // Rock, Paper, Scissors
 
 // A deployment function to set up the initial state
 const deployJanken = async () => {
-  const janken = await hre.viem.deployContract("Janken", [fee]);
-
+  // Deploy using Hardhat Upgrades (returns a proxy address)
+  const JankenFactory = await hre.ethers.getContractFactory("Janken");
+  const proxy = await hre.upgrades.deployProxy(JankenFactory, [fee], {
+    initializer: "initialize",
+  });
+  await proxy.waitForDeployment();
+  
+  const janken = await hre.viem.getContractAt("Janken", await proxy.getAddress() as `0x${string}`)
   return { janken };
+
 };
 
 const deployERC20 = async () => {

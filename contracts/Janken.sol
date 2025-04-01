@@ -90,7 +90,6 @@ contract Janken is FeesUpgradeable {
     event GameFinished(uint256 indexed gameId, address indexed challenger, address indexed challenged, JankenStorage.Result result);
 
     function initialize(uint256 fee) public initializer {
-        __ReentrancyGuard_init();
         __Fees_init(fee);
     }
 
@@ -388,5 +387,20 @@ contract Janken is FeesUpgradeable {
         if (challengedPledge > 0 && !giveUp) {
             require(IERC20(challengedErc20Token).transferFrom(challengedPlayer, challengedPledgeTo, challengedPledge), "Transfer of the challenged's pledge failed");
         }
+    }
+    
+    /**
+     * @notice Get the player statistics for a given address.
+     * 
+     * @param player The address of the player.
+     * @return wins The number of wins for the player.
+     * @return losses The number of losses for the player.
+     * @return draws The number of draws for the player.
+     * @return chickenOuts The number of times the player chickened out.
+     */
+    function playerStats(address player) external view returns (uint256 wins, uint256 losses, uint256 draws, uint256 chickenOuts) {
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        JankenStorage.PlayerStats storage stats = ds.playerStats[player];
+        return (stats.wins, stats.losses, stats.draws, stats.chickenOuts);
     }
 }
