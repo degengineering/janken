@@ -2,29 +2,45 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "./Fees.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "./FeesUpgradeable.sol";
 
-/**
- * @title Janken
- * 
- * @author degengineering.ink
- * 
- * @notice A simple implementation of the Janken game (Rock, Paper, Scissors) on Ethereum. Come and play with your friends! Pledge your finest meme coins! 
- * And if you chicken out, you will be called out!
- * 
- * @dev This contract allows two players to challenge each other to a game of Janken. Players can commit their moves and reveal them later.
- * The game has a commit-reveal phase, where players can commit their moves and then reveal them. The winner is determined based on the rules of Janken.
- * The contract also supports ERC20 token pledges, allowing players to stake tokens as part of the game. The contract keeps track of player statistics, including wins, losses, draws, and chicken outs.
- * Players can challenge each other, commit their moves, and reveal them. The game state is managed using an enum to track the current phase of the game.
- * The contract emits events for game start, player commitment, and game finish, allowing external applications to listen for these events.
- * The contract uses OpenZeppelin's Ownable and ERC20 interfaces for token transfers and ownership management. 
- */
-contract Janken is Fees {
+library JankenStorage {
+    bytes32 internal constant STORAGE_SLOT = keccak256("janken.storage");
 
-    event GameStarted(uint256 indexed gameId, address indexed challenger, address indexed challenged, uint256 commitDeadline, address challengerErc20Token, uint256 challengerErc20Pledge);
-    event GameOn(uint256 indexed gameId, address indexed challenger, address indexed challenged, uint256 revealDeadline, address challengedErc20Token, uint256 challengedErc20Pledge);
-    event GameFinished(uint256 indexed gameId, address indexed challenger, address indexed challenged, Result result);
+    struct Layout {
+        mapping(address => mapping(address => Game)) games;
+        mapping(address => PlayerStats) playerStats;
+        uint256 gameCounter;
+    }
+
+    function layout() internal pure returns (Layout storage s) {
+        bytes32 slot = STORAGE_SLOT;
+        assembly {
+            s.slot := slot
+        }
+    }
+
+    struct Game {
+        uint256 id;
+        bytes32 commitment;
+        GameState gameState;
+        address challengerErc20Token;
+        uint256 challengerErc20Pledge;
+        address challengedErc20Token;
+        uint256 challengedErc20Pledge;
+        Move challengedMove;
+        uint256 commitDeadline;
+        uint256 revealDeadline;
+    }
+
+    struct PlayerStats {
+        uint256 wins;
+        uint256 losses;
+        uint256 draws;
+        uint256 chickenOuts;
+    }
 
     uint256 constant COMMIT_DURATION = 7 days;
     uint256 constant REVEAL_DURATION = 7 days;
@@ -48,37 +64,34 @@ contract Janken is Fees {
         RevealPhase,
         Finished
     }
+}
 
-    struct Game {
-        uint256 id;
-        bytes32 commitment;
-        GameState gameState;
-        address challengerErc20Token;
-        uint256 challengerErc20Pledge;
-        address challengedErc20Token;
-        uint256 challengedErc20Pledge;
-        Move challengedMove;
-        uint256 commitDeadline;
-        uint256 revealDeadline;
-    }
 
-    struct PlayerStats {
-        uint256 wins;
-        uint256 losses;
-        uint256 draws;
-        uint256 chickenOuts;
-    }
+/**
+ * @title Janken
+ * 
+ * @author degengineering.ink
+ * 
+ * @notice A simple implementation of the Janken game (Rock, Paper, Scissors) on Ethereum. Come and play with your friends! Pledge your finest meme coins! 
+ * And if you chicken out, you will be called out!
+ * 
+ * @dev This contract allows two players to challenge each other to a game of Janken. Players can commit their moves and reveal them later.
+ * The game has a commit-reveal phase, where players can commit their moves and then reveal them. The winner is determined based on the rules of Janken.
+ * The contract also supports ERC20 token pledges, allowing players to stake tokens as part of the game. The contract keeps track of player statistics, including wins, losses, draws, and chicken outs.
+ * Players can challenge each other, commit their moves, and reveal them. The game state is managed using an enum to track the current phase of the game.
+ * The contract emits events for game start, player commitment, and game finish, allowing external applications to listen for these events.
+ * The contract uses OpenZeppelin's Ownable and ERC20 interfaces for token transfers and ownership management. 
+ */
+contract Janken is FeesUpgradeable {
+    using JankenStorage for JankenStorage.Layout;
 
-    mapping(address => mapping (address => Game)) public games;
-    mapping(address => PlayerStats) public playerStats;
-    uint256 public gameCounter;
+    event GameStarted(uint256 indexed gameId, address indexed challenger, address indexed challenged, uint256 commitDeadline, address challengerErc20Token, uint256 challengerErc20Pledge);
+    event GameOn(uint256 indexed gameId, address indexed challenger, address indexed challenged, uint256 revealDeadline, address challengedErc20Token, uint256 challengedErc20Pledge);
+    event GameFinished(uint256 indexed gameId, address indexed challenger, address indexed challenged, JankenStorage.Result result);
 
-    /**
-     * @notice Constructor to initialize the contract with a service fee.
-     * @param fee The service fee in wei.
-     */
-    constructor(uint256 fee) Fees(fee) {
-        gameCounter = 0;
+    function initialize(uint256 fee) public initializer {
+        __ReentrancyGuard_init();
+        __Fees_init(fee);
     }
 
     /**
@@ -93,19 +106,20 @@ contract Janken is Fees {
      * @param commitment The commitment hash of the move.
      */
     function challenge(address challengedPlayer, bytes32 commitment, address erc20, uint256 pledge) external payable collectFee {
+        JankenStorage.Layout storage ds = JankenStorage.layout();
         require(msg.sender != challengedPlayer, "Cannot challenge yourself");
         require(challengedPlayer != address(0), "Invalid challenged player");
         require(commitment != bytes32(0), "Commitment cannot be empty");
-        require(games[msg.sender][challengedPlayer].commitment == bytes32(0), "Game already exists");
-        require(games[challengedPlayer][msg.sender].commitment == bytes32(0), "Game already exists");
+        require(ds.games[msg.sender][challengedPlayer].commitment == bytes32(0), "Game already exists");
+        require(ds.games[challengedPlayer][msg.sender].commitment == bytes32(0), "Game already exists");
 
         // Create a new game
-        Game storage newGame = games[msg.sender][challengedPlayer];
-        newGame.id = gameCounter;
+        JankenStorage.Game storage newGame = ds.games[msg.sender][challengedPlayer];
+        newGame.id = ds.gameCounter;
         newGame.commitment = commitment;
-        newGame.gameState = GameState.CommitPhase;
-        newGame.commitDeadline = block.timestamp + COMMIT_DURATION;
-        gameCounter++;
+        newGame.gameState = JankenStorage.GameState.CommitPhase;
+        newGame.commitDeadline = block.timestamp + JankenStorage.COMMIT_DURATION;
+        ds.gameCounter++;
 
         // In case the challenged player pledge some token, verify the smart contract has the approval to transfer the pledged amount
         if (pledge > 0) {
@@ -128,9 +142,10 @@ contract Janken is Fees {
      * @param giveUp If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
     function callChallengedChicken(address challengedPlayer, bool giveUp) external payable collectFee nonReentrant returns (bool) {
-        Game storage game = games[msg.sender][challengedPlayer];
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        JankenStorage.Game storage game = ds.games[msg.sender][challengedPlayer];
         require(game.commitment != bytes32(0), "Game does not exist");
-        require(game.gameState == GameState.CommitPhase, "Invalid game state");
+        require(game.gameState == JankenStorage.GameState.CommitPhase, "Invalid game state");
         return _checkAndResolveChalengedChicken(game, msg.sender, challengedPlayer, giveUp);
     }
 
@@ -143,10 +158,10 @@ contract Janken is Fees {
      * @param challengedPlayer The address of the player being challenged.
      * @param giveUp Indicates if the pledged ERC20 tokens should be kept by the contract or transferred back to the challenger. This is useful in case the transfer fails to unstuck the game.
      */
-    function _checkAndResolveChalengedChicken(Game storage game, address challenger, address challengedPlayer, bool giveUp) internal returns (bool) {
+    function _checkAndResolveChalengedChicken(JankenStorage.Game storage game, address challenger, address challengedPlayer, bool giveUp) internal returns (bool) {
         // Check if the deadline has passed and call chicken out if so
         if (block.timestamp > game.commitDeadline) {
-            _settle(game, challenger, challengedPlayer, Result.ChallengedChickenOut, giveUp);
+            _settle(game, challenger, challengedPlayer, JankenStorage.Result.ChallengedChickenOut, giveUp);
             return true;
         }
         return false;
@@ -166,10 +181,11 @@ contract Janken is Fees {
      * @param pledge The amount of the ERC20 token to be used as a pledge.
      * @param giveUp If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function play(address challenger, Move move, address erc20, uint256 pledge, bool giveUp) external payable nonReentrant collectFee {
-        Game storage game = games[challenger][msg.sender];
+    function play(address challenger, JankenStorage.Move move, address erc20, uint256 pledge, bool giveUp) external payable nonReentrant collectFee {
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        JankenStorage.Game storage game = ds.games[challenger][msg.sender];
         require(game.commitment != bytes32(0), "Game does not exist");
-        require(game.gameState == GameState.CommitPhase, "Invalid game state");
+        require(game.gameState == JankenStorage.GameState.CommitPhase, "Invalid game state");
 
         // Check if the challenged player hasn't chicken out and resolve the game if so
         if (_checkAndResolveChalengedChicken(game, challenger, msg.sender, giveUp)) {
@@ -178,8 +194,8 @@ contract Janken is Fees {
 
         // Game on - Commit the move
         game.challengedMove = move;
-        game.gameState = GameState.RevealPhase;
-        game.revealDeadline = block.timestamp + REVEAL_DURATION;
+        game.gameState = JankenStorage.GameState.RevealPhase;
+        game.revealDeadline = block.timestamp + JankenStorage.REVEAL_DURATION;
 
         // In case the challenged player pledge some token, verify the smart contract has the approval to transfer the pledged amount
         if (pledge > 0) {
@@ -202,9 +218,10 @@ contract Janken is Fees {
      * @param giveUp If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
     function callChallengerChicken(address challenger, bool giveUp) external payable collectFee nonReentrant returns (bool) {
-        Game storage game = games[challenger][msg.sender];
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        JankenStorage.Game storage game = ds.games[challenger][msg.sender];
         require(game.commitment != bytes32(0), "Game does not exist");
-        require(game.gameState == GameState.RevealPhase, "Invalid game state");
+        require(game.gameState == JankenStorage.GameState.RevealPhase, "Invalid game state");
         return _checkAndResolveChallengerChicken(game, challenger, msg.sender, giveUp);
     }
 
@@ -216,10 +233,10 @@ contract Janken is Fees {
      * @param challengedPlayer The address of the player being challenged.
      * @param giveUp Indicates if the pledged ERC20 tokens should be kept by the contract or transferred back to the challenger. This is useful in case the transfer fails to unstuck the game.
      */
-    function _checkAndResolveChallengerChicken(Game storage game, address challenger, address challengedPlayer, bool giveUp) internal returns (bool) {
+    function _checkAndResolveChallengerChicken(JankenStorage.Game storage game, address challenger, address challengedPlayer, bool giveUp) internal returns (bool) {
         // Check if the deadline has passed and call chicken out if so
         if (block.timestamp > game.revealDeadline) {
-            _settle(game, challenger, challengedPlayer, Result.ChallengerChickenOut, giveUp);
+            _settle(game, challenger, challengedPlayer, JankenStorage.Result.ChallengerChickenOut, giveUp);
             return true;
         }
         return false;
@@ -236,10 +253,11 @@ contract Janken is Fees {
      * @param secret The secret used to create the commitment hash.
      * @param move The move of the player used to create the commitment hash (Rock, Paper, or Scissors).
      */
-    function reveal(address challengedPlayer, string calldata secret, Move move, bool giveUp) external payable collectFee nonReentrant{
-        Game storage game = games[msg.sender][challengedPlayer];
+    function reveal(address challengedPlayer, string calldata secret, JankenStorage.Move move, bool giveUp) external payable collectFee nonReentrant{
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        JankenStorage.Game storage game = ds.games[msg.sender][challengedPlayer];
         require(game.commitment != bytes32(0), "Game does not exist");
-        require(game.gameState == GameState.RevealPhase, "Invalid game state");
+        require(game.gameState == JankenStorage.GameState.RevealPhase, "Invalid game state");
 
         // Check if the reveal deadline has passed. In that case, the challenger is called out for chicken out.
         if (_checkAndResolveChallengerChicken(game, msg.sender, challengedPlayer, giveUp)) {
@@ -248,24 +266,24 @@ contract Janken is Fees {
 
         // Verify the commitment. If not valid, the challenger is called out for chicken.
         if (!_verifyCommitment(game.commitment, secret, move)) {
-            _settle(game, msg.sender, challengedPlayer, Result.ChallengerChickenOut, giveUp);
+            _settle(game, msg.sender, challengedPlayer, JankenStorage.Result.ChallengerChickenOut, giveUp);
         }
 
         // Determine the winner
-        Result result;
+        JankenStorage.Result result;
         if (game.challengedMove == move) {
-            result = Result.Draw;
-            _settle(game, msg.sender, challengedPlayer, Result.Draw, giveUp);
+            result = JankenStorage.Result.Draw;
+            _settle(game, msg.sender, challengedPlayer, JankenStorage.Result.Draw, giveUp);
         } else if (
-            (game.challengedMove == Move.Rock && move == Move.Scissors) ||
-            (game.challengedMove == Move.Paper && move == Move.Rock) ||
-            (game.challengedMove == Move.Scissors && move == Move.Paper)
+            (game.challengedMove == JankenStorage.Move.Rock && move == JankenStorage.Move.Scissors) ||
+            (game.challengedMove == JankenStorage.Move.Paper && move == JankenStorage.Move.Rock) ||
+            (game.challengedMove == JankenStorage.Move.Scissors && move == JankenStorage.Move.Paper)
         ) {
-            result = Result.ChallengedWin;
-            _settle(game, msg.sender, challengedPlayer, Result.ChallengedWin, giveUp);
+            result = JankenStorage.Result.ChallengedWin;
+            _settle(game, msg.sender, challengedPlayer, JankenStorage.Result.ChallengedWin, giveUp);
         } else {
-            result = Result.ChallengerWin;
-            _settle(game, msg.sender, challengedPlayer, Result.ChallengerWin, giveUp);
+            result = JankenStorage.Result.ChallengerWin;
+            _settle(game, msg.sender, challengedPlayer, JankenStorage.Result.ChallengerWin, giveUp);
         }
     }
 
@@ -281,7 +299,7 @@ contract Janken is Fees {
     function verifyCommitment(
         bytes32 _commitment,
         string calldata _secret,
-        Move _move
+        JankenStorage.Move _move
     ) external pure returns (bool) {
         return _verifyCommitment(_commitment, _secret, _move);
     }
@@ -298,7 +316,7 @@ contract Janken is Fees {
     function _verifyCommitment(
         bytes32 _commitment,
         string calldata _secret,
-        Move _move
+        JankenStorage.Move _move
     ) internal pure returns (bool) {
         return keccak256(abi.encodePacked(_move, _secret)) == _commitment;
     }
@@ -312,7 +330,7 @@ contract Janken is Fees {
      * @param result The result of the game.
      * @param giveUp If true, the contract keeps the pledged ERC20 tokens. This is useful in case the transfer fails to unstuck the game.
      */
-    function _settle(Game storage game, address challenger, address challengedPlayer, Result result, bool giveUp) internal {
+    function _settle(JankenStorage.Game storage game, address challenger, address challengedPlayer, JankenStorage.Result result, bool giveUp) internal {
 
         // Temp. store the pledge amount to be transferred back to the challenged player
         address challengerToken = game.challengerErc20Token;
@@ -322,31 +340,32 @@ contract Janken is Fees {
         uint256 gameId = game.id;
         
         // Reset the game state
-        delete games[challenger][challengedPlayer];
+        JankenStorage.Layout storage ds = JankenStorage.layout();
+        delete ds.games[challenger][challengedPlayer];
         
         // Redistribute the pledged ERC20 tokens to the players and update their stats according the result
-        if (result == Result.ChallengerWin) {
+        if (result == JankenStorage.Result.ChallengerWin) {
             // Challenger wins and get all the tokens
-            playerStats[challenger].wins++;
-            playerStats[challengedPlayer].losses++;
+            ds.playerStats[challenger].wins++;
+            ds.playerStats[challengedPlayer].losses++;
             _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challenger, challengedAmount, giveUp);
-        } else if (result == Result.ChallengedWin) {
+        } else if (result == JankenStorage.Result.ChallengedWin) {
             // Challenged player wins and get all the tokens
-            playerStats[challengedPlayer].wins++;
-            playerStats[challenger].losses++;
+            ds.playerStats[challengedPlayer].wins++;
+            ds.playerStats[challenger].losses++;
             _distribute(challenger, challengerToken, challengedPlayer, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, giveUp);
-        } else if (result == Result.Draw) {
+        } else if (result == JankenStorage.Result.Draw) {
             // Draw, both players get their tokens back
-            playerStats[challenger].draws++;
-            playerStats[challengedPlayer].draws++;
+            ds.playerStats[challenger].draws++;
+            ds.playerStats[challengedPlayer].draws++;
             _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, giveUp);
-        } else if (result == Result.ChallengerChickenOut) {
+        } else if (result == JankenStorage.Result.ChallengerChickenOut) {
             // Challenger chicken out and challenged player gets all the tokens
-            playerStats[challenger].chickenOuts++;
+            ds.playerStats[challenger].chickenOuts++;
             _distribute(challenger, challengerToken, challengedPlayer, challengerAmount, challengedPlayer, challengedToken, challengedPlayer, challengedAmount, giveUp);
-        } else if (result == Result.ChallengedChickenOut) {
+        } else if (result == JankenStorage.Result.ChallengedChickenOut) {
             // Challenged player chicken out. Challenger gets all the tokens
-            playerStats[challengedPlayer].chickenOuts++;
+            ds.playerStats[challengedPlayer].chickenOuts++;
             _distribute(challenger, challengerToken, challenger, challengerAmount, challengedPlayer, challengedToken, challenger, challengedAmount, giveUp);
         } else {
             revert("Invalid result");
