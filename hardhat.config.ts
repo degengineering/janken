@@ -15,7 +15,13 @@ const config: HardhatUserConfig = {
         runs: 200,
       },
     },
-  }
+  },
+  networks: {
+    inktest: {
+      url: "https://rpc-gel-sepolia.inkonchain.com", // ← Replace with actual RPC
+      accounts: [process.env.PRIVATE_KEY!], // ← From .env file
+    },
+  },
 };
 
 export default config;
