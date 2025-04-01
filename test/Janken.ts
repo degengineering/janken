@@ -9,7 +9,7 @@ import JankenArtifact from "../artifacts/contracts/Janken.sol/Janken.json";
 import ERC20Artifact from "@openzeppelin/contracts/build/contracts/ERC20.json";
 
 // Requested fee
-const fee = parseEther("0.001");
+const fee = parseEther("0.1");
 
 // Types
 type Move = 0 | 1 | 2; // Rock, Paper, Scissors
@@ -199,6 +199,21 @@ describe("Janken", () => {
     // Check balances
     expect(await erc20.read.balanceOf([walletClientChallenger.account.address])).equal(challengerInitBalance - pledgeAmount);
     expect(await erc20.read.balanceOf([walletClientChallenged.account.address])).equal(challengedInitBalance + pledgeAmount);
+
+    // Withdraw the fees
+    expect(await janken.read.currentFee()).equal(fee);
+
+    // expect balance to be greater than 0
+    const client = await hre.viem.getPublicClient()
+    let jankenBalance = await client.getBalance({address: janken.address,});
+    const ownerBalanceOld = await client.getBalance({address: await janken.read.owner()});
+    expect(jankenBalance.valueOf()).to.be.greaterThan(0n);
+    const challengerFees = await janken.write.withdrawFees();
+    expect(challengerFees).to.be.greaterThan(0n);
+    jankenBalance = await client.getBalance({address: janken.address,});
+    expect(jankenBalance.valueOf()).to.be.equal(0n);
+    const ownerBalanceNew = await client.getBalance({address: await janken.read.owner()});
+    expect(ownerBalanceOld.valueOf()).to.be.lessThan(ownerBalanceNew.valueOf()); 
   });
 
   it("should allow chicken out if reveal deadline missed", async () => {
