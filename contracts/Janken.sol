@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import "./FeesUpgradeable.sol";
 
 library JankenStorage {
@@ -82,7 +83,7 @@ library JankenStorage {
  * The contract emits events for game start, player commitment, and game finish, allowing external applications to listen for these events.
  * The contract uses OpenZeppelin's Ownable and ERC20 interfaces for token transfers and ownership management. 
  */
-contract Janken is FeesUpgradeable {
+contract Janken is FeesUpgradeable, UUPSUpgradeable {
     using JankenStorage for JankenStorage.Layout;
 
     event GameStarted(uint256 indexed gameId, address indexed challenger, address indexed challenged, uint256 commitDeadline, address challengerErc20Token, uint256 challengerErc20Pledge);
@@ -91,6 +92,7 @@ contract Janken is FeesUpgradeable {
 
     function initialize(uint256 fee) public initializer {
         __Fees_init(fee);
+        __UUPSUpgradeable_init();
     }
 
     /**
@@ -403,4 +405,7 @@ contract Janken is FeesUpgradeable {
         JankenStorage.PlayerStats storage stats = ds.playerStats[player];
         return (stats.wins, stats.losses, stats.draws, stats.chickenOuts);
     }
+
+    /// @dev Required by UUPS pattern — only owner can upgrade
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }
